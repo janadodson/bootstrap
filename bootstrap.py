@@ -3,7 +3,7 @@ Functions related to running a vectorized bootstrap of standard errors.
 
 Author : Jana Dodson
 Email : janadodson1@gmail.com
-Version : 1.0
+Version : 2.0
 
 Dependencies
 ------------
@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 
 
-def bootstrap_se(x, wts=None, n_reps=10000):
+def bootstrap_se(x, wts=None, n_reps=10000, seed=0):
     """
     Compute bootstrapped standard error.
 
@@ -31,11 +31,12 @@ def bootstrap_se(x, wts=None, n_reps=10000):
     n_reps : positive int, optional
         Count of random sample replicates. When unspecified, default is 
         10,000.
+    seed : int, optional
+        Seed for random sample generation
 
     Returns
     -------
     se : numpy.float64 or array-like with shape (n_features, )
-        
     """
     
     # Convert input arrays to numpy arrays
@@ -59,26 +60,28 @@ def bootstrap_se(x, wts=None, n_reps=10000):
     # Check that n_reps is a positive int
     if not isinstance(n_reps, int) or n_reps <= 0:
          raise Exception("Input value 'n_reps' must be a positive integer.")
+           
+    # Force 1D array to 2D
+    if temp_x.ndim == 1:
+        temp_x = temp_x.reshape((len(temp_x), 1))
     
-    # Create array of observation frequencies for each random sample replicate
-    boot_counts = np.random.multinomial(n=len(temp_x), pvals=np.ones(len(temp_x)) / len(temp_x), size=n_reps)
+    # Create array of observation frequencies drawn from repeated random sampling with replacement
+    # shape = (n_observations, n_reps)
+    np.random.seed(seed=seed)
+    sample_freqs = np.random.multinomial(n=len(temp_x), pvals=np.ones(len(temp_x)) / len(temp_x), size=n_reps)
     
     # Calculate SE for each column in data
-    if x.ndim == 1:
-        se = (
-            np.multiply(boot_counts, np.multiply(temp_wts, temp_x)).sum(1) 
-            / np.multiply(boot_counts, np.multiply(temp_wts, ~np.isnan(temp_x))).sum(1)
+    se = np.array([
+        (
+            np.multiply(sample_freqs, np.multiply(temp_wts, col)).sum(1) 
+            / np.multiply(sample_freqs, np.multiply(temp_wts, ~np.isnan(col))).sum(1)
         ).std()
-    elif x.ndim == 2:
-        se = np.array([
-            (
-                np.multiply(boot_counts, np.multiply(temp_wts, col)).sum(1) 
-                / np.multiply(boot_counts, np.multiply(temp_wts, ~np.isnan(col))).sum(1)
-            ).std()
-            for col in temp_x.T
-        ])
-        if isinstance(x, pd.DataFrame):
-            se = pd.Series(se, index=x.columns)
-            
-    return se
-
+        for col in temp_x.T
+    ])
+    
+    if isinstance(x, pd.DataFrame):
+        return pd.Series(se, index=x.columns)
+    elif x.ndim == 1:
+        return se[0]
+    else:       
+        return se
